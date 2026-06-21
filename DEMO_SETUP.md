@@ -1,6 +1,6 @@
 # Demo setup — crypto payment without real money
 
-This wires the **website** (`soundntwebsite`, deployed at `https://soundnt.netlify.app`)
+This wires the **website** (`soundntwebsite`, deployed at `https://soundnt-app.vercel.app`)
 and the **desktop app** (`cleanmic`) so the full crypto-checkout flow works **as a
 demo**: nobody spends crypto, but the app still unlocks Pro automatically with a
 real, signed license.
@@ -8,7 +8,7 @@ real, signed license.
 ## How the demo works
 
 ```
-app "Buy"  ──▶  browser: soundnt.netlify.app/buy?plan&ref&device&v
+app "Buy"  ──▶  browser: soundnt-app.vercel.app/buy?plan&ref&device&v
                      │  POST /api/checkout  (demo provider)
                      ▼
               /buy/demo-pay  ──▶  "Simulate payment & unlock"
@@ -34,21 +34,24 @@ already embedded in the shipped app** (`LICENSE_PUBKEY_B64` in
 
 ## 1. Deploy the website to Netlify
 
-### a. Database (Postgres)
+### a. Database (Supabase Postgres)
 
-The order/license flow needs Postgres. Easiest: add Netlify's **Neon** database
-integration to the site (Netlify dashboard → **Add database** → Neon). It injects
-`NETLIFY_DATABASE_URL`, which the app reads automatically.
+The order/license flow needs Postgres. Use **Supabase** (free tier is plenty):
 
-Or create a free DB at https://neon.tech and copy its connection string.
+1. Create a project at https://supabase.com (note the DB password).
+2. Open **SQL Editor** → paste all of [`supabase/schema.sql`](supabase/schema.sql)
+   → **Run**. That creates the 4 tables + indexes + FKs and locks them down with
+   RLS. (It's idempotent — safe to re-run.)
+3. Grab the **Transaction pooler** connection string (Project Settings → Database
+   → Connection string), port **6543**, for `DATABASE_URL`. Full walkthrough:
+   [`supabase/README.md`](supabase/README.md).
 
-Then apply the schema (from your machine, once):
+The website and the desktop app share this **one** database: the app never connects
+to Postgres directly — it only calls the website's `/api`, which is the sole DB client.
 
-```bash
-cd soundntwebsite
-# use the same connection string Netlify/Neon gave you:
-DATABASE_URL="postgres://…neon…?sslmode=require" npm run db:migrate
-```
+> Prefer `drizzle-kit` over the SQL editor? Run migrations against the **direct**
+> connection (port 5432), not the 6543 pooler:
+> `DIRECT_DATABASE_URL="postgresql://postgres:…@db.<ref>.supabase.co:5432/postgres?sslmode=require" npm run db:migrate`
 
 ### b. Environment variables (Netlify → Site settings → Environment variables)
 
@@ -59,7 +62,7 @@ not only in `netlify.toml`:
 |---|---|
 | `DEMO_MODE` | `true` |
 | `LICENSE_SIGNING_KEY_JWK` | the dev key (single line, below) |
-| `DATABASE_URL` | your Neon string — *skip if using the Netlify Neon integration* |
+| `DATABASE_URL` | your Supabase **transaction pooler** string (port 6543) |
 
 The dev signing key (matches the app's embedded public key — use as-is for the demo):
 
@@ -75,11 +78,11 @@ for the demo.
 
 Push the repo / connect it to Netlify. `netlify.toml` already declares the
 `@netlify/plugin-nextjs` runtime and the build command. Set the site name so it
-resolves to `soundnt.netlify.app`.
+resolves to `soundnt-app.vercel.app`.
 
 ### d. Verify
 
-Open `https://soundnt.netlify.app/api/health` — you should see:
+Open `https://soundnt-app.vercel.app/api/health` — you should see:
 
 ```json
 { "ok": true, "demoMode": true, "config": { "database": true, "signingKey": true, … } }
@@ -89,7 +92,7 @@ Open `https://soundnt.netlify.app/api/health` — you should see:
 
 ## 2. Point the app at the demo site
 
-The app now defaults to `https://soundnt.netlify.app` (changed in
+The app now defaults to `https://soundnt-app.vercel.app` (changed in
 `src-tauri/src/license.rs` and `src-tauri/src/cloud.rs`). Rebuild it so the new
 default ships:
 
@@ -115,6 +118,34 @@ npm run tauri dev
 
 ## 3. Try the flow
 
+### Fastest: one-command smoke test (no desktop build, no browser)
+
+With the site running and pointed at Supabase (`.env.local` already has
+`DEMO_MODE=true` + the dev key — just paste your Supabase `DATABASE_URL`):
+
+```bash
+cd soundntwebsite
+npm install          # first time only
+npm run dev          # leave running → http://localhost:3000
+```
+
+then, in a second terminal:
+
+```bash
+cd soundntwebsite
+npm run demo:smoke               # defaults to pro_12m on http://localhost:3000
+# or pick a plan / a deployed site:
+npm run demo:smoke -- --plan pro_1m
+BASE_URL=https://soundnt-app.vercel.app npm run demo:smoke
+```
+
+It runs the **real** pipeline — `checkout → demo/pay (simulated crypto) → order
+poll → offline Ed25519 verify** — and prints the minted Pro license, proving the
+token is one the desktop app accepts offline. A green `✓ PASS` means the whole
+Supabase-backed crypto→Pro flow works end to end.
+
+### Full experience: through the desktop app
+
 1. In the app, open the Pro paywall and click a plan's **Buy**.
 2. The browser opens the demo checkout → click **Simulate payment & unlock**.
 3. The success page shows the license key, and the app unlocks Pro **on its own**
@@ -131,5 +162,5 @@ npm run tauri dev
    `cleanmic/src-tauri/src/license.rs` (`LICENSE_PUBKEY_B64`) and ship a new app build.
 2. Set `DEMO_MODE=false` (or unset). Configure `NOWPAYMENTS_API_KEY` +
    `NOWPAYMENTS_IPN_SECRET` and point the NOWPayments IPN callback at
-   `https://soundnt.netlify.app/api/webhooks/nowpayments`.
+   `https://soundnt-app.vercel.app/api/webhooks/nowpayments`.
 3. Everything else (checkout, polling, activation, revocation) is unchanged.

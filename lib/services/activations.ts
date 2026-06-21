@@ -23,6 +23,7 @@ export interface ActivateInput {
   deviceName?: string | null;
   appVersion?: string | null;
   ip?: string | null;
+  fingerprint?: string | null;
   publicX: string;
   maxDevices: number;
 }
@@ -56,6 +57,9 @@ export async function registerActivation(db: Db, input: ActivateInput): Promise<
 
   const now = new Date();
 
+  // Normalize empty/whitespace fingerprint to null.
+  const fp = input.fingerprint?.trim() || null;
+
   // 3. Upsert the device binding.
   const existing = await db
     .select()
@@ -72,6 +76,7 @@ export async function registerActivation(db: Db, input: ActivateInput): Promise<
         deviceName: input.deviceName ?? existing[0].deviceName,
         appVersion: input.appVersion ?? existing[0].appVersion,
         ip: input.ip ?? existing[0].ip,
+        fingerprint: fp ?? existing[0].fingerprint,
       })
       .where(eq(activations.id, existing[0].id));
 
@@ -88,6 +93,7 @@ export async function registerActivation(db: Db, input: ActivateInput): Promise<
       deviceName: input.deviceName ?? null,
       appVersion: input.appVersion ?? null,
       ip: input.ip ?? null,
+      fingerprint: fp,
       firstSeen: now,
       lastSeen: now,
       count: 1,

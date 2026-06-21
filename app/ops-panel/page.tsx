@@ -1,5 +1,18 @@
 "use client";
 
+/**
+ * app/ops-panel/page.tsx — the hidden ops dashboard.
+ *
+ * Not reachable directly: `middleware.ts` rewrites the secret `ADMIN_PATH` slug
+ * onto this route (and 404s both `/ops-panel` and the legacy `/admin`), then
+ * stamps a noindex header. Everything here is still gated by the admin bearer
+ * token, which is held in this tab only and sent as `Authorization: Bearer …`.
+ *
+ * Tabs: Revenue · Users · Licenses · Orders · Devices. "Devices" surfaces the
+ * per-activation IP address and the salted device fingerprint (hashed MAC) the
+ * desktop app reports — so one physical machine running many keys is visible.
+ */
+
 import * as React from "react";
 import {
   LockKeyhole,
@@ -11,6 +24,10 @@ import {
   AlertTriangle,
   DollarSign,
   ShoppingCart,
+  Users,
+  Fingerprint,
+  Globe,
+  MonitorSmartphone,
 } from "lucide-react";
 import { SiteHeader } from "@/components/site/site-header";
 import { SiteFooter } from "@/components/site/site-footer";
@@ -22,7 +39,7 @@ import { cn } from "@/lib/utils";
 
 const TOKEN_KEY = "soundnt.admin.token";
 
-// ---- API response shapes (mirrors lib/services/admin.ts) ------------------
+// ---- API response shapes (mirror lib/services/admin.ts) -------------------
 
 interface RevenueData {
   totals: { paidOrders: number; revenueCents: number };
@@ -55,7 +72,33 @@ interface OrderRow {
   paidAt: string | null;
 }
 
-type Tab = "revenue" | "licenses" | "orders";
+interface UserRow {
+  email: string | null;
+  licenses: number;
+  activeLicenses: number;
+  orders: number;
+  paidOrders: number;
+  spentCents: number;
+  devices: number;
+  lastSeen: string | null; // ISO
+}
+
+interface ActivationRow {
+  lic: string;
+  email: string | null;
+  plan: string;
+  status: string;
+  deviceId: string;
+  deviceName: string | null;
+  ip: string | null;
+  fingerprint: string | null;
+  appVersion: string | null;
+  firstSeen: string; // ISO
+  lastSeen: string; // ISO
+  count: number;
+}
+
+type Tab = "revenue" | "users" | "licenses" | "orders" | "devices";
 
 class UnauthorizedError extends Error {}
 
@@ -80,6 +123,20 @@ function fmtDate(iso: string | null): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+/** ISO timestamp → short local date + time (for last-seen / activity). */
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** UNIX seconds → short local date. */
 function fmtExp(exp: number): string {
   if (!exp) return "—";
@@ -92,6 +149,12 @@ function fmtExp(exp: number): string {
 
 function planLabel(plan: string): string {
   return plan.replace(/^pro_/, "").replace(/_/g, " ");
+}
+
+/** Shorten a long fingerprint/device id for the table (full value in title). */
+function shortId(id: string | null, head = 12): string {
+  if (!id) return "—";
+  return id.length > head ? `${id.slice(0, head)}…` : id;
 }
 
 function licenseBadgeVariant(status: string): "success" | "danger" | "warn" | "muted" {
@@ -120,7 +183,7 @@ function orderBadgeVariant(status: string): "success" | "danger" | "warn" | "mut
   }
 }
 
-export default function AdminPage() {
+export default function OpsPanelPage() {
   const [token, setToken] = React.useState<string | null>(null);
   const [ready, setReady] = React.useState(false);
 
@@ -307,16 +370,20 @@ function Dashboard({
 
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "revenue", label: "Revenue" },
+    { id: "users", label: "Users" },
     { id: "licenses", label: "Licenses" },
     { id: "orders", label: "Orders" },
+    { id: "devices", label: "Devices" },
   ];
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10">
+    <div className="mx-auto max-w-6xl px-4 py-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-fg">Ops dashboard</h1>
-          <p className="mt-1 text-sm text-muted">Revenue, licenses, and orders.</p>
+          <p className="mt-1 text-sm text-muted">
+            Revenue, users, licenses, orders, and devices.
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={onLock}>
           <LogOut className="h-4 w-4" />
@@ -327,7 +394,7 @@ function Dashboard({
       <div
         role="tablist"
         aria-label="Dashboard sections"
-        className="glass mt-6 inline-flex gap-1 rounded-xl p-1"
+        className="glass mt-6 inline-flex flex-wrap gap-1 rounded-xl p-1"
       >
         {tabs.map((t) => (
           <button
@@ -348,8 +415,10 @@ function Dashboard({
 
       <div className="mt-6">
         {tab === "revenue" ? <RevenueSection api={api} /> : null}
+        {tab === "users" ? <UsersSection api={api} /> : null}
         {tab === "licenses" ? <LicensesSection api={api} /> : null}
         {tab === "orders" ? <OrdersSection api={api} /> : null}
+        {tab === "devices" ? <DevicesSection api={api} /> : null}
       </div>
     </div>
   );
@@ -387,6 +456,51 @@ function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
         {label}
       </td>
     </tr>
+  );
+}
+
+/** A debounced search box used by the Users / Licenses / Devices sections. */
+function SearchControls({
+  query,
+  setQuery,
+  onRefresh,
+  loading,
+  placeholder,
+  label,
+}: {
+  query: string;
+  setQuery: (v: string) => void;
+  onRefresh: () => void;
+  loading: boolean;
+  placeholder: string;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+        <Input
+          type="search"
+          placeholder={placeholder}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onRefresh();
+          }}
+          className="w-full pl-9 sm:w-72"
+          aria-label={label}
+        />
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onRefresh}
+        disabled={loading}
+        aria-label={`Refresh ${label}`}
+      >
+        <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+      </Button>
+    </div>
   );
 }
 
@@ -518,6 +632,114 @@ function RevenueSection({ api }: { api: Api }) {
 }
 
 // ===========================================================================
+// Users (aggregated by email)
+// ===========================================================================
+
+function UsersSection({ api }: { api: Api }) {
+  const [users, setUsers] = React.useState<UserRow[]>([]);
+  const [query, setQuery] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(
+    async (q: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+        const res = await api<{ users: UserRow[] }>(`/api/admin/users${params}`);
+        setUsers(res.users);
+      } catch (err) {
+        if (err instanceof UnauthorizedError) return;
+        setError(err instanceof Error ? err.message : "Failed to load users");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api]
+  );
+
+  React.useEffect(() => {
+    void load("");
+  }, [load]);
+
+  React.useEffect(() => {
+    const id = setTimeout(() => void load(query), 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-fg">
+          <Users className="h-4 w-4 text-teal" /> Users
+        </h2>
+        <SearchControls
+          query={query}
+          setQuery={setQuery}
+          onRefresh={() => void load(query)}
+          loading={loading}
+          placeholder="Search by email…"
+          label="users"
+        />
+      </div>
+
+      {error ? <SectionError message={error} /> : null}
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-faint">
+                <th className="px-4 py-2.5 font-medium">Email</th>
+                <th className="px-4 py-2.5 text-right font-medium">Licenses</th>
+                <th className="px-4 py-2.5 text-right font-medium">Orders</th>
+                <th className="px-4 py-2.5 text-right font-medium">Spent</th>
+                <th className="px-4 py-2.5 text-right font-medium">Devices</th>
+                <th className="px-4 py-2.5 font-medium">Last seen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading && users.length === 0 ? (
+                <EmptyRow colSpan={6} label="Loading users…" />
+              ) : users.length === 0 ? (
+                <EmptyRow colSpan={6} label="No users match." />
+              ) : (
+                users.map((u, i) => (
+                  <tr key={u.email ?? `anon-${i}`} className="align-middle hover:bg-elevated/50">
+                    <td className="max-w-[18rem] truncate px-4 py-2.5 text-fg" title={u.email ?? ""}>
+                      {u.email ?? <span className="text-faint">(no email)</span>}
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">
+                      <span className="text-fg">{fmtNum(u.activeLicenses)}</span>
+                      <span className="text-faint"> / {fmtNum(u.licenses)}</span>
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">
+                      <span className="text-fg">{fmtNum(u.paidOrders)}</span>
+                      <span className="text-faint"> / {fmtNum(u.orders)}</span>
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right font-medium text-fg">
+                      ${usd(u.spentCents)}
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">{fmtNum(u.devices)}</td>
+                    <td className="tnum px-4 py-2.5 text-muted">{fmtDateTime(u.lastSeen)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <p className="text-xs text-faint">
+        Aggregated by the email on a license/order. Purchases made without an email show under “(no
+        email)”. “Licenses” / “Orders” show active-or-paid&nbsp;/&nbsp;total.
+      </p>
+    </div>
+  );
+}
+
+// ===========================================================================
 // Licenses
 // ===========================================================================
 
@@ -586,31 +808,14 @@ function LicensesSection({ api }: { api: Api }) {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-semibold text-fg">Licenses</h2>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input
-              type="search"
-              placeholder="Search lic, email or order ref…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void load(query);
-              }}
-              className="w-full pl-9 sm:w-72"
-              aria-label="Search licenses"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void load(query)}
-            disabled={loading}
-            aria-label="Refresh licenses"
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-          </Button>
-        </div>
+        <SearchControls
+          query={query}
+          setQuery={setQuery}
+          onRefresh={() => void load(query)}
+          loading={loading}
+          placeholder="Search lic, email or order ref…"
+          label="licenses"
+        />
       </div>
 
       {error ? <SectionError message={error} /> : null}
@@ -766,6 +971,131 @@ function OrdersSection({ api }: { api: Api }) {
           </table>
         </div>
       </Card>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Devices (activations — IP + device fingerprint)
+// ===========================================================================
+
+function DevicesSection({ api }: { api: Api }) {
+  const [rows, setRows] = React.useState<ActivationRow[]>([]);
+  const [query, setQuery] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(
+    async (q: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+        const res = await api<{ activations: ActivationRow[] }>(`/api/admin/activations${params}`);
+        setRows(res.activations);
+      } catch (err) {
+        if (err instanceof UnauthorizedError) return;
+        setError(err instanceof Error ? err.message : "Failed to load devices");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [api]
+  );
+
+  React.useEffect(() => {
+    void load("");
+  }, [load]);
+
+  React.useEffect(() => {
+    const id = setTimeout(() => void load(query), 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-fg">
+          <MonitorSmartphone className="h-4 w-4 text-teal" /> Devices
+        </h2>
+        <SearchControls
+          query={query}
+          setQuery={setQuery}
+          onRefresh={() => void load(query)}
+          loading={loading}
+          placeholder="Search lic, email, name, IP, fingerprint…"
+          label="devices"
+        />
+      </div>
+
+      {error ? <SectionError message={error} /> : null}
+
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-faint">
+                <th className="px-4 py-2.5 font-medium">License</th>
+                <th className="px-4 py-2.5 font-medium">Email</th>
+                <th className="px-4 py-2.5 font-medium">Device</th>
+                <th className="px-4 py-2.5 font-medium">
+                  <span className="inline-flex items-center gap-1">
+                    <Fingerprint className="h-3.5 w-3.5" /> Fingerprint
+                  </span>
+                </th>
+                <th className="px-4 py-2.5 font-medium">
+                  <span className="inline-flex items-center gap-1">
+                    <Globe className="h-3.5 w-3.5" /> IP
+                  </span>
+                </th>
+                <th className="px-4 py-2.5 font-medium">App</th>
+                <th className="px-4 py-2.5 font-medium">Last seen</th>
+                <th className="px-4 py-2.5 text-right font-medium">Seen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading && rows.length === 0 ? (
+                <EmptyRow colSpan={8} label="Loading devices…" />
+              ) : rows.length === 0 ? (
+                <EmptyRow colSpan={8} label="No devices yet." />
+              ) : (
+                rows.map((r) => (
+                  <tr key={`${r.lic}:${r.deviceId}`} className="align-middle hover:bg-elevated/50">
+                    <td className="px-4 py-2.5">
+                      <span className="tnum font-mono text-xs text-fg">{r.lic}</span>
+                    </td>
+                    <td className="max-w-[12rem] truncate px-4 py-2.5 text-muted" title={r.email ?? ""}>
+                      {r.email ?? "—"}
+                    </td>
+                    <td className="max-w-[10rem] truncate px-4 py-2.5 text-muted" title={r.deviceName ?? r.deviceId}>
+                      {r.deviceName ?? <span className="text-faint">unnamed</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-xs text-muted" title={r.fingerprint ?? ""}>
+                        {shortId(r.fingerprint)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-xs text-muted" title={r.ip ?? ""}>
+                        {r.ip ?? "—"}
+                      </span>
+                    </td>
+                    <td className="tnum px-4 py-2.5 text-muted">{r.appVersion ?? "—"}</td>
+                    <td className="tnum px-4 py-2.5 text-muted">{fmtDateTime(r.lastSeen)}</td>
+                    <td className="tnum px-4 py-2.5 text-right text-muted">{fmtNum(r.count)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <p className="text-xs text-faint">
+        The fingerprint is a salted one-way hash of the machine&apos;s network-adapter (MAC)
+        address — the same physical machine reuses it across reinstalls, so the same fingerprint on
+        many licenses signals sharing. The raw hardware address is never collected.
+      </p>
     </div>
   );
 }

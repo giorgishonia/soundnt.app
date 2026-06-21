@@ -10,7 +10,7 @@ as long as both share the same Ed25519 keypair.
 > and the anchoring test [`tests/license.test.ts`](tests/license.test.ts), which verifies the
 > exact known-good vector from the build spec (§2.4).
 
-> 🧪 **Just want the demo running on `soundnt.netlify.app` (crypto checkout that
+> 🧪 **Just want the demo running on `soundnt-app.vercel.app` (crypto checkout that
 > takes no real money)?** Follow [`DEMO_SETUP.md`](DEMO_SETUP.md). It uses
 > `DEMO_MODE=true` to simulate payments while still minting real, app-verifiable
 > licenses.
@@ -20,7 +20,7 @@ as long as both share the same Ed25519 keypair.
 ## Stack
 
 - **Next.js 15** (App Router) + **TypeScript**, deploy on **Vercel**
-- **Postgres** (Neon serverless) + **Drizzle ORM** (typed migrations)
+- **Postgres** (Supabase) + **Drizzle ORM** (typed migrations)
 - **Zod** validation · **Resend** email · **Upstash Redis** rate limiting
 - Payments: **NOWPayments** (primary) behind a `PaymentProvider` interface;
   **BTCPay** + **Coinbase Commerce** stubs implement the same interface
@@ -63,14 +63,14 @@ npm install
 cp .env.example .env.local        # fill in values (see below)
 npm run keygen                     # generate a dev/prod Ed25519 keypair
 npm run db:generate                # (already generated) regenerate migration SQL after schema edits
-npm run db:migrate                 # apply migrations to your Neon DB (needs DATABASE_URL)
+npm run db:migrate                 # apply migrations to Supabase (DIRECT 5432 url) — or paste supabase/schema.sql
 npm run dev                        # http://localhost:3000
 ```
 
 Minimum env to boot the app and exercise minting locally (`.env.local`):
 
 ```
-DATABASE_URL=postgres://…neon…           # a Neon (or any Postgres) database
+DATABASE_URL=postgresql://…@…pooler.supabase.com:6543/postgres?sslmode=require  # Supabase txn pooler
 LICENSE_SIGNING_KEY_JWK={"kty":"OKP",…}  # from `npm run keygen` (the PRIVATE JWK)
 ADMIN_TOKEN=<long-random>
 ALLOW_TEST_MODE=true                      # enables /api/admin/test-pay (NEVER in prod)
@@ -143,11 +143,12 @@ and the app self-locks on its next check.
 
 ## Idempotency & correctness notes
 
-- **No double-mint.** The Neon HTTP driver has no interactive transactions, so issuance relies
-  on (1) a unique `webhook_events(provider,event_id)` log to dedup re-deliveries and (2) a
+- **No double-mint.** Issuance deliberately avoids interactive transactions (so it's correct on
+  any pooled/stateless driver — the Supabase transaction pooler and pglite alike), relying on
+  (1) a unique `webhook_events(provider,event_id)` log to dedup re-deliveries and (2) a
   conditional `UPDATE orders SET status='paid' … WHERE status<>'paid'` that claims the order
-  exactly once (Postgres row-locks serialize concurrent claims). Only the winner mints. Proven
-  in `tests/issue.test.ts`.
+  exactly once (under READ COMMITTED the row lock makes losers re-check the WHERE and match no
+  rows). Only the winner mints. Proven in `tests/issue.test.ts`.
 - **No stranded payments.** Because the claim and the license-insert are separate commits, a
   crash between them could leave an order `paid` with no license. Re-delivery (or any later
   webhook) detects a paid-but-unminted order and converges it via the idempotent `mintForOrder`,
@@ -167,7 +168,8 @@ and the app self-locks on its next check.
 
 ## Deployment runbook (§13)
 
-1. **Neon**: create a Postgres database; set `DATABASE_URL`; run `npm run db:migrate`.
+1. **Supabase**: create a project; run `supabase/schema.sql` in the SQL editor (or `npm run db:migrate`
+   against the direct 5432 url); set `DATABASE_URL` to the transaction pooler (6543) string.
 2. **Keys**: `npm run keygen`. Put the private JWK in Vercel env as `LICENSE_SIGNING_KEY_JWK`;
    send the public x to the app team to embed + ship. **Don't go live until the app build is out.**
 3. **NOWPayments**: create an account → API key + IPN secret. Set the IPN callback to

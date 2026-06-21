@@ -1,11 +1,15 @@
 /**
  * lib/services/issue.ts — license issuance (spec §6, "the heart").
  *
- * Idempotency without interactive transactions:
+ * Idempotency via unique constraints + a single conditional claim UPDATE — built
+ * from single autocommit statements (no multi-statement transaction), so it is
+ * correct on any Postgres driver/pooler (Supabase Supavisor transaction pooler,
+ * and pglite in tests):
  *   1. webhook_events has unique(provider, event_id) — dedups identical
  *      provider re-deliveries.
- *   2. A conditional UPDATE claims the order pending→paid exactly once (Postgres
- *      row-locks serialize concurrent claims). Only the winner mints.
+ *   2. A conditional UPDATE claims the order pending→paid exactly once (under
+ *      READ COMMITTED the row lock makes concurrent claimers re-check WHERE
+ *      status<>'paid', so only one matches). Only the winner mints.
  *   3. A paid order with a license_id short-circuits — never double-mint.
  *
  * The signing key is passed in (never imported), so this is fully testable.
@@ -137,10 +141,12 @@ async function claimAndMint(
     if (o && o.status === "paid") {
       // Paid but no license attached: a prior attempt claimed the order then
       // crashed / failed its HTTP round-trip before inserting the license. The
-      // Neon HTTP driver has no interactive transactions, so the claim and the
-      // mint are separate commits — without this branch such an order would be
-      // permanently stranded (paid, no license, no recovery). mintForOrder is
-      // idempotent on `lic`, so re-minting converges the order safely.
+      // claim, the license INSERT, and the licenseId attach are separate
+      // autocommit statements (we deliberately avoid a multi-statement
+      // transaction so this stays correct on any pooled/stateless driver) — so
+      // without this branch such an order would be permanently stranded (paid,
+      // no license, no recovery). mintForOrder is idempotent on `lic`, so
+      // re-minting converges the order safely.
       const license = await mintForOrder(db, o, signingKey);
       return { outcome: "minted", license };
     }

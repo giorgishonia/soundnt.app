@@ -29,17 +29,22 @@ function int(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * The shared DEV signing key's PUBLIC x — it is published in DEMO_SETUP.md and
+ * embedded in the shipped app, so its private half is effectively public. Fine
+ * for the demo, but it must NEVER sign licenses in a real (non-demo) store.
+ */
+const DEV_SIGNING_PUBLIC_X = "YjICy5hhlXqxHsT7pZoe3AXUPqghplWYP48GPOG4YOI";
+
 export const env = {
   /**
-   * Postgres connection string. Prefers an explicit DATABASE_URL, but also
-   * accepts NETLIFY_DATABASE_URL — the var Netlify's built-in Neon database
-   * integration injects automatically — so a Netlify deploy can work zero-config.
+   * Postgres connection string — the Supabase Supavisor *transaction* pooler URL
+   * for serverless (host aws-0-<region>.pooler.supabase.com, user
+   * postgres.<project-ref>, port 6543, ?sslmode=require). Required; we read ONLY
+   * DATABASE_URL (no NETLIFY_DATABASE_URL fallback) so an unset value fails loudly
+   * instead of silently routing to a stale Netlify-injected database.
    */
-  databaseUrl: () =>
-    get("DATABASE_URL") ??
-    get("NETLIFY_DATABASE_URL") ??
-    get("NETLIFY_DATABASE_URL_UNPOOLED") ??
-    require("DATABASE_URL"),
+  databaseUrl: () => require("DATABASE_URL"),
 
   /** The crown-jewel signing key. Parsed + validated lazily; throws if absent. */
   signingKey(): Ed25519PrivateJwk {
@@ -54,6 +59,13 @@ export const env = {
     if (k.kty !== "OKP" || k.crv !== "Ed25519" || !k.x || !k.d) {
       throw new Error(
         "LICENSE_SIGNING_KEY_JWK must be an Ed25519 OKP private JWK with x and d"
+      );
+    }
+    // Fail loud if the shared DEV key is used in a real (non-demo) store — its
+    // private half is public, so it could forge unlimited Pro licenses.
+    if (k.x === DEV_SIGNING_PUBLIC_X && !this.demoMode()) {
+      throw new Error(
+        "Refusing the shared DEV signing key with DEMO_MODE off — run `npm run keygen`, embed the new public x in the app and ship a build, then set LICENSE_SIGNING_KEY_JWK to the new private JWK."
       );
     }
     return k as Ed25519PrivateJwk;
@@ -72,6 +84,18 @@ export const env = {
   supportEmail: () => get("SUPPORT_EMAIL") ?? "support@soundnt.app",
 
   adminToken: () => get("ADMIN_TOKEN"),
+
+  /**
+   * Secret URL slug the ops dashboard is served at (trimmed of slashes,
+   * lowercased). The actual routing lives in `middleware.ts` (which reads
+   * process.env directly so it can be build-inlined into the edge bundle); this
+   * accessor mirrors that normalization for any server-side use. Fail-closed:
+   * unset / dotted ⇒ `undefined` (panel disabled).
+   */
+  adminPath: (): string | undefined => {
+    const raw = get("ADMIN_PATH")?.replace(/^\/+|\/+$/g, "").toLowerCase();
+    return raw && raw.length > 0 && !raw.includes(".") ? raw : undefined;
+  },
 
   /**
    * Secret for signing stateless account magic-link tokens. Prefer a dedicated
@@ -97,7 +121,7 @@ export const env = {
     get("APP_BASE_URL") ??
     get("NEXT_PUBLIC_APP_BASE_URL") ??
     get("URL") ?? // Netlify sets URL to the site's primary address at build/runtime
-    "https://soundnt.netlify.app",
+    "https://soundnt-app.vercel.app",
 
   maxDevices: () => int("MAX_DEVICES", 3),
   pendingOrderTtlSeconds: () => int("PENDING_ORDER_TTL_SECONDS", 7200),

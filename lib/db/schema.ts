@@ -85,6 +85,7 @@ export const activations = pgTable(
     deviceName: text("device_name"),
     appVersion: text("app_version"),
     ip: inet("ip"),
+    fingerprint: text("fingerprint"),
     firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().defaultNow(),
     lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
     count: integer("count").notNull().default(1),

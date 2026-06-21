@@ -20,7 +20,7 @@ const sans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_BASE_URL ?? "https://soundnt.netlify.app"
+    process.env.NEXT_PUBLIC_APP_BASE_URL ?? "https://soundnt-app.vercel.app"
   ),
   title: {
     default: "soundn't — local AI mic noise suppression",

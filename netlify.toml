@@ -8,8 +8,8 @@
 # because [build.environment] values are NOT exposed to deployed Functions:
 #   DEMO_MODE=true                 # simulate payments (no real crypto)
 #   LICENSE_SIGNING_KEY_JWK={...}  # the Ed25519 private JWK (signs licenses)
-#   DATABASE_URL=postgres://...    # or use the Netlify Neon DB integration
-#                                  # (which provides NETLIFY_DATABASE_URL)
+#   DATABASE_URL=postgresql://...  # Supabase TRANSACTION pooler string (port 6543)
+#                                  # — see supabase/README.md
 # See README "Demo deploy (Netlify)" for the full list.
 
 [build]

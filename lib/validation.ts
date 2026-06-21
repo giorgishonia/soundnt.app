@@ -50,6 +50,7 @@ export const activateSchema = z.object({
   deviceId: capability,
   deviceName: shortText,
   appVersion: shortText,
+  fingerprint: z.string().max(128).optional(),
 });
 
 export const validateSchema = z.object({

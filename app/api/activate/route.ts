@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     deviceName: parsed.data.deviceName ?? null,
     appVersion: parsed.data.appVersion ?? null,
     ip,
+    fingerprint: parsed.data.fingerprint ?? null,
     publicX: env.signingPublicX(),
     maxDevices: env.maxDevices(),
   });

@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV !== "production";
 
 // Next.js dev (Fast Refresh / HMR) needs 'unsafe-eval' for client JS and a
@@ -20,6 +23,9 @@ const csp = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Pin the workspace root — a sibling lockfile in the home dir would otherwise
+  // make Next infer the wrong root for output file tracing.
+  outputFileTracingRoot: projectRoot,
   async headers() {
     const headers = [
       { key: "X-Content-Type-Options", value: "nosniff" },

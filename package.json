@@ -15,10 +15,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "keygen": "node tools/keygen.mjs"
+    "keygen": "node tools/keygen.mjs",
+    "demo:smoke": "node tools/demo-smoke.mjs"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.4",
     "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.34.3",
     "class-variance-authority": "^0.7.1",
@@ -26,6 +26,7 @@
     "drizzle-orm": "^0.38.3",
     "lucide-react": "^0.469.0",
     "next": "^15.1.4",
+    "postgres": "^3.4.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^4.0.1",

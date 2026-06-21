@@ -25,8 +25,12 @@ export default function PrivacyPage() {
             <p className="mt-1.5">
               Only what&apos;s needed to sell and support a license: your plan, payment status, the
               signed license, an optional email you choose to give us, and per-install random IDs
-              (a device id and order ref). These IDs are random UUIDs — <strong>not</strong> hardware
-              fingerprints. We don&apos;t track or profile your usage.
+              (a device id and order ref). To enforce your plan&apos;s device limit and to detect
+              license sharing or abuse, we also store a salted, one-way{" "}
+              <strong>device fingerprint</strong> derived from your computer&apos;s network-adapter
+              (MAC) address, along with the IP address and app version captured when a device
+              activates. We never store the raw hardware address — only the salted hash, which
+              can&apos;t be reversed back to it — and we don&apos;t track or profile your usage.
             </p>
           </section>
           <section>
