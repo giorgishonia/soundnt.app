@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+    /* solid fallback behind the fixed WebGL shader */
+    background-color: #f4eedb;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  body {
+    @apply text-fg font-sans;
+    /* transparent so the fixed shader canvas shows through */
+    background-color: transparent;
+  }
+  /* Titles use the fancy soft serif; body stays in the friendlier sans. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display), ui-serif, Georgia, serif;
+    font-optical-sizing: auto;
+    letter-spacing: -0.012em;
+  }
+  /* Editorial italic accent for highlighted words in titles. */
+  .accent-italic {
+    font-style: italic;
+    font-weight: 500;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: rgba(217, 119, 87, 0.26);
+    color: #3a2b24;
+  }
+
+  /* refined scrollbar */
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(58, 43, 36, 0.16);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(217, 119, 87, 0.45);
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /* Frosted glass surface — light warm pane sitting over the moving shader. */
+  .glass {
+    background: rgba(255, 252, 244, 0.6);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid rgba(58, 43, 36, 0.1);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.6),
+      0 24px 60px -30px rgba(58, 43, 36, 0.35);
+  }
+  .glass-strong {
+    background: rgba(255, 252, 244, 0.8);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid rgba(58, 43, 36, 0.12);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.7),
+      0 30px 80px -32px rgba(58, 43, 36, 0.4);
+  }
+  /* coral edge highlight for featured surfaces */
+  .glass-teal {
+    border-color: rgba(217, 119, 87, 0.4);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.6),
+      0 0 0 1px rgba(217, 119, 87, 0.1),
+      0 30px 80px -30px rgba(58, 43, 36, 0.4),
+      0 0 60px -14px rgba(217, 119, 87, 0.35);
+  }
+}
+
+@layer utilities {
+  .glow-teal {
+    background-image: radial-gradient(
+      60% 60% at 50% 0%,
+      rgba(217, 119, 87, 0.16) 0%,
+      rgba(217, 119, 87, 0) 70%
+    );
+  }
+  .text-glow {
+    text-shadow: 0 0 28px rgba(217, 119, 87, 0.35);
+  }
+  .hairline {
+    border-color: rgba(58, 43, 36, 0.1);
+  }
+  /* fine film grain overlay */
+  .bg-noise {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 160px 160px;
+  }
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(217, 119, 87, 0.18),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
+  }
+}

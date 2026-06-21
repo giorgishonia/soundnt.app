@@ -1,0 +1,25 @@
+# Netlify config for soundnt.netlify.app (Next.js 15 App Router).
+#
+# The official Next.js runtime turns the App Router + API routes into Netlify
+# Functions automatically — no manual function wiring needed.
+#
+# IMPORTANT: build-time vars go here; RUNTIME secrets/flags must be set in the
+# Netlify UI (Site settings → Environment variables) or via `netlify env:set`,
+# because [build.environment] values are NOT exposed to deployed Functions:
+#   DEMO_MODE=true                 # simulate payments (no real crypto)
+#   LICENSE_SIGNING_KEY_JWK={...}  # the Ed25519 private JWK (signs licenses)
+#   DATABASE_URL=postgres://...    # or use the Netlify Neon DB integration
+#                                  # (which provides NETLIFY_DATABASE_URL)
+# See README "Demo deploy (Netlify)" for the full list.
+
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Used for canonical/OG metadata. The licensing flow uses relative URLs +
+  # server-side env.appBaseUrl(), which already defaults to this domain.
+  NEXT_PUBLIC_APP_BASE_URL = "https://soundnt.netlify.app"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
