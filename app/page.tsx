@@ -143,12 +143,12 @@ export default function HomePage() {
             </p>
             <div className="relative mt-7">
               <a
-                href="https://soundnt.app/download/soundnt-setup.exe"
+                href="https://github.com/giorgishonia/soundnt-releases/releases/latest/download/soundnt-x64-setup.exe"
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-teal px-7 text-base font-semibold text-teal-fg shadow-lg shadow-teal/25 transition-all hover:bg-teal/90 hover:shadow-teal/40"
               >
                 <Download className="h-4 w-4" /> Download for Windows
               </a>
-              <p className="mt-3 text-xs text-faint">Windows 10/11 · 64-bit</p>
+              <p className="mt-3 text-xs text-faint">Windows 10/11 · 64-bit · auto-updates</p>
             </div>
           </div>
         </section>
