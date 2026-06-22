@@ -6,8 +6,9 @@
 import { parseBody, errorJson, json, tooMany, clientIp } from "@/lib/http";
 import { checkoutSchema } from "@/lib/validation";
 import { rateLimit, LIMITS } from "@/lib/ratelimit";
-import { getDb } from "@/lib/db/client";
+import { getDb, type Db } from "@/lib/db/client";
 import { createOrderIfAbsent, attachInvoice, findOrderByRef } from "@/lib/services/orders";
+import type { Order } from "@/lib/db/schema";
 import { PLANS, amountUsd, amountUsdNumber, type PlanId } from "@/lib/plans";
 import { env } from "@/lib/env";
 import { getActiveProvider } from "@/lib/payments";
@@ -32,23 +33,46 @@ export async function POST(req: Request) {
   const { ref, device, email, appVersion } = parsed.data;
   const planDef = PLANS[plan];
 
-  const db = getDb();
   const provider = getActiveProvider();
+
+  // Fail loud-but-clean if the backend isn't configured (missing DATABASE_URL or
+  // payment-provider keys) rather than throwing an opaque 500. This is what the
+  // browser hits when the Vercel env vars aren't set — see /api/health.
+  if (!provider.isConfigured()) {
+    log.error("checkout blocked: payment provider not configured", { provider: provider.name });
+    return errorJson("payments are not configured yet — please try again later", 503);
+  }
+
   const base = env.appBaseUrl();
   const ttl = env.pendingOrderTtlSeconds();
   const expiresAt = new Date(Date.now() + ttl * 1000);
 
+  let db: Db;
+  try {
+    db = getDb();
+  } catch (e) {
+    log.error("checkout blocked: database not configured", { err: String(e) });
+    return errorJson("service temporarily unavailable", 503);
+  }
+
   // Create (or fetch) the order — idempotent on ref.
-  const { order, created } = await createOrderIfAbsent(db, {
-    ref,
-    plan,
-    amountCents: planDef.amountCents,
-    provider: provider.name,
-    deviceId: device ?? null,
-    email: email ?? null,
-    appVersion: appVersion ?? null,
-    expiresAt,
-  });
+  let order: Order;
+  let created: boolean;
+  try {
+    ({ order, created } = await createOrderIfAbsent(db, {
+      ref,
+      plan,
+      amountCents: planDef.amountCents,
+      provider: provider.name,
+      deviceId: device ?? null,
+      email: email ?? null,
+      appVersion: appVersion ?? null,
+      expiresAt,
+    }));
+  } catch (e) {
+    log.error("checkout blocked: order persistence failed", { ref, err: String(e) });
+    return errorJson("service temporarily unavailable", 503);
+  }
 
   // A reused ref with a different plan is a conflict (capability collision).
   if (!created && order.plan !== plan) {
